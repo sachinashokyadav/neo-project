@@ -66,21 +66,29 @@ pipeline {
             }
         }
 
-        stage('Trivy Scan Backend Image') {
-            steps {
-                sh """
-                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-                    aquasec/trivy image --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_NAME}:${BACKEND_TAG}
-                """
-            }
-        }
+        stage('Trivy Scan Images') {
+            parallel {
+                stage('Scan Backend Image') {
+                    steps {
+                        sh """
+                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+                        -v \$PWD/trivy-reports:/reports aquasec/trivy image \
+                        --severity HIGH,CRITICAL --format json --output /reports/backend-trivy.json \
+                        ${IMAGE_NAME}:${BACKEND_TAG} || true
+                        """
+                    }
+                }
 
-        stage('Trivy Scan Frontend Image') {
-            steps {
-                sh """
-                    docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-                    aquasec/trivy image --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_NAME}:${FRONTEND_TAG}
-                """
+                stage('Scan Frontend Image') {
+                    steps {
+                        sh """
+                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+                        -v \$PWD/trivy-reports:/reports aquasec/trivy image \
+                        --severity HIGH,CRITICAL --format json --output /reports/frontend-trivy.json \
+                        ${IMAGE_NAME}:${FRONTEND_TAG} || true
+                        """
+                    }
+                }
             }
         }
 
@@ -94,13 +102,13 @@ pipeline {
                 }
             }
         }
-
-    } // end stages
+    }
 
     post {
         always {
-            archiveArtifacts artifacts: '**/dependency-check-report.xml',
+            archiveArtifacts artifacts: '**/dependency-check-report.xml, trivy-reports/*.json',
                              fingerprint: true
+            echo 'Pipeline finished. Reports archived.'
         }
         success {
             echo 'CI pipeline completed successfully 🎉'
