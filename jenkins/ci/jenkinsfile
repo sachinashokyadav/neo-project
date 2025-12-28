@@ -8,10 +8,6 @@ pipeline {
         IMAGE_TAG  = "latest"
     }
 
-    tools {
-        nodejs 'nodejs-18'      // name of NodeJS tool configured in Jenkins
-    }
-
     stages {
 
         stage('Checkout Code') {
