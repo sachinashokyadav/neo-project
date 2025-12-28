@@ -12,31 +12,43 @@ pipeline {
 
         stage('Checkout Code') {
             steps {
-                git branch: 'main', url: 'https://github.com/sachinashokyadav/neo-project.git'
+                git branch: 'main',
+                    url: 'https://github.com/sachinashokyadav/neo-project.git'
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
                 withSonarQubeEnv('SonarQube') {
-                    sh """
+                    sh '''
                         npx sonar-scanner \
                           -Dsonar.projectKey=nodejs-app \
                           -Dsonar.sources=. \
-                          -Dsonar.host.url=${env.SONAR_HOST_URL} \
-                          -Dsonar.login=${env.SONAR_AUTH_TOKEN}
-                    """
+                          -Dsonar.host.url=$SONAR_HOST_URL \
+                          -Dsonar.login=$SONAR_AUTH_TOKEN
+                    '''
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
                 }
             }
         }
 
         stage('OWASP Dependency Check') {
             steps {
-                dependencyCheck additionalArguments: """
-                    --scan . \
-                    --format XML \
-                    --out dependency-check-report.xml
-                """, odcInstallation: 'OWASP-Dependency-Check'
+                dependencyCheck(
+                    odcInstallation: 'OWASP-Dependency-Check',
+                    additionalArguments: '''
+                        --scan .
+                        --format XML
+                        --out dependency-check-report.xml
+                    '''
+                )
                 dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
             }
         }
@@ -52,27 +64,3 @@ pipeline {
                 sh "trivy image --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_NAME}:${IMAGE_TAG}"
             }
         }
-
-        stage('Push to DockerHub') {
-            steps {
-                withDockerRegistry(credentialsId: DOCKERHUB_CREDENTIALS, url: '') {
-                    sh "docker push ${IMAGE_NAME}:${IMAGE_TAG}"
-                }
-            }
-        }
-
-    }
-
-    post {
-        always {
-            archiveArtifacts artifacts: '**/dependency-check-report.xml', fingerprint: true
-        }
-        success {
-            echo 'CI pipeline completed successfully 🎉'
-        }
-        failure {
-            echo 'CI pipeline failed 😞'
-        }
-    }
-}
-
