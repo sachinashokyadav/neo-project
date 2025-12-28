@@ -64,3 +64,28 @@ pipeline {
                 sh "trivy image --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_NAME}:${IMAGE_TAG}"
             }
         }
+
+        stage('Push to DockerHub') {
+            steps {
+                withDockerRegistry(credentialsId: DOCKERHUB_CREDENTIALS, url: '') {
+                    sh "docker push ${IMAGE_NAME}:${IMAGE_TAG}"
+                }
+            }
+        }
+
+    } // end stages
+
+    post {
+        always {
+            archiveArtifacts artifacts: '**/dependency-check-report.xml',
+                             fingerprint: true
+        }
+        success {
+            echo 'CI pipeline completed successfully 🎉'
+        }
+        failure {
+            echo 'CI pipeline failed 😞'
+        }
+    }
+
+} // end pipeline
