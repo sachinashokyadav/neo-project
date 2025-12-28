@@ -2,10 +2,11 @@ pipeline {
     agent any
 
     environment {
-        SONARQUBE = 'SonarQube'                   // SonarQube config name in Jenkins
+        SONARQUBE = 'SonarQube'                    // SonarQube config name in Jenkins
         DOCKERHUB_CREDENTIALS = 'dockerhub-creds' // DockerHub credentials ID
         IMAGE_NAME = "sachinashokyadav/neoproject"
-        IMAGE_TAG  = "latest"
+        BACKEND_TAG = "backend"
+        FRONTEND_TAG = "frontend"
     }
 
     stages {
@@ -45,26 +46,48 @@ pipeline {
             }
         }
 
-        stage('Docker Build') {
-            steps {
-                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} ."
-            }
-        }
+        stage('Docker Build Images') {
+            parallel {
+                stage('Build Backend Image') {
+                    steps {
+                        dir('Application-Code/backend') {
+                            sh "docker build -t ${IMAGE_NAME}:${BACKEND_TAG} ."
+                        }
+                    }
+                }
 
-        stage('Trivy Scan Image') {
-            steps {
-                sh "trivy image --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_NAME}:${IMAGE_TAG}"
-            }
-        }
-
-        stage('Push to DockerHub') {
-            steps {
-                withDockerRegistry(credentialsId: DOCKERHUB_CREDENTIALS, url: '') {
-                    sh "docker push ${IMAGE_NAME}:${IMAGE_TAG}"
+                stage('Build Frontend Image') {
+                    steps {
+                        dir('Application-Code/frontend') {
+                            sh "docker build -t ${IMAGE_NAME}:${FRONTEND_TAG} ."
+                        }
+                    }
                 }
             }
         }
 
+        stage('Trivy Scan Backend Image') {
+            steps {
+                sh "trivy image --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_NAME}:${BACKEND_TAG}"
+            }
+        }
+
+        stage('Trivy Scan Frontend Image') {
+            steps {
+                sh "trivy image --exit-code 1 --severity HIGH,CRITICAL ${IMAGE_NAME}:${FRONTEND_TAG}"
+            }
+        }
+
+        stage('Push Images to DockerHub') {
+            steps {
+                withDockerRegistry(credentialsId: DOCKERHUB_CREDENTIALS, url: '') {
+                    sh """
+                        docker push ${IMAGE_NAME}:${BACKEND_TAG}
+                        docker push ${IMAGE_NAME}:${FRONTEND_TAG}
+                    """
+                }
+            }
+        }
     } // end stages
 
     post {
@@ -79,5 +102,4 @@ pipeline {
             echo 'CI pipeline failed 😞'
         }
     }
-
-} // end pipeline
+}
