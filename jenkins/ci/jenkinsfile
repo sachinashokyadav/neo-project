@@ -4,7 +4,7 @@ pipeline {
     environment {
         SONARQUBE = 'SonarQube'                   // SonarQube config name in Jenkins
         DOCKERHUB_CREDENTIALS = 'dockerhub-creds' // DockerHub credentials ID
-        IMAGE_NAME = "yourdockerhubuser/nodejs-app"
+        IMAGE_NAME = "sachinashokyadav/neoproject"
         IMAGE_TAG  = "latest"
     }
 
