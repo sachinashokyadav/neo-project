@@ -1,17 +1,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: frontend-deployment
+  name: frontend
   namespace: three-tier
-  labels:
-    app: frontend
 spec:
   replicas: 2
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 1
   selector:
     matchLabels:
       app: frontend
@@ -21,16 +14,10 @@ spec:
         app: frontend
     spec:
       containers:
-        - name: frontend
-          image: sachinashokyadav/neoproject:frontend
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 3000
-          resources:
-            requests:
-              cpu: "100m"
-              memory: "128Mi"
-            limits:
-              cpu: "500m"
-              memory: "256Mi"
-
+      - name: frontend
+        image: sachinashokyadav/neoproject:frontend
+        ports:
+        - containerPort: 3000
+        env:
+        - name: BACKEND_URL
+          value: "http://backend.three-tier.svc.cluster.local:3500/api/tasks"
