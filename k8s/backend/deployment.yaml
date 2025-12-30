@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: backend
-        image: sachinashokyadav/neoproject:backend
+        image: 970547336262.dkr.ecr.ap-south-1.amazonaws.com/neoproject/backend-img:backend
         ports:
         - containerPort: 3500
         env:
