@@ -1,1 +1,97 @@
-need to add
+pipeline {
+    agent any
+
+    parameters {
+        choice(
+            name: 'DEPLOY_TARGET',
+            choices: ['all', 'backend', 'frontend', 'database'],
+            description: 'Select which component to deploy'
+        )
+    }
+
+    environment {
+        AWS_REGION = 'ap-south-1'
+        AWS_CREDENTIALS = 'aws-creds'
+
+        EKS_CLUSTER_NAME = 'eks-neosoft'
+        K8S_NAMESPACE = 'three-tier'
+
+        BACKEND_IMAGE = '970547336262.dkr.ecr.ap-south-1.amazonaws.com/neoproject/backend-img:backend'
+        FRONTEND_IMAGE = '970547336262.dkr.ecr.ap-south-1.amazonaws.com/neoproject/frontend-img:frontend'
+    }
+
+    stages {
+
+        stage('Checkout Manifests') {
+            steps {
+                git branch: 'main',
+                    url: 'https://github.com/sachinashokyadav/neo-project.git'
+            }
+        }
+
+        stage('Configure kubeconfig') {
+            steps {
+                withAWS(credentials: "${AWS_CREDENTIALS}", region: "${AWS_REGION}") {
+                    sh '''
+                      aws eks update-kubeconfig \
+                        --region ${AWS_REGION} \
+                        --name ${EKS_CLUSTER_NAME}
+                    '''
+                }
+            }
+        }
+
+        stage('Deploy Selected Component') {
+            steps {
+                script {
+                    if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'backend') {
+                        sh '''
+                          kubectl set image deployment/backend backend=${BACKEND_IMAGE} -n ${K8S_NAMESPACE}
+                          kubectl apply -f k8s/backend -n ${K8S_NAMESPACE}
+                        '''
+                    }
+
+                    if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'frontend') {
+                        sh '''
+                          kubectl set image deployment/frontend frontend=${FRONTEND_IMAGE} -n ${K8S_NAMESPACE}
+                          kubectl apply -f k8s/frontend -n ${K8S_NAMESPACE}
+                        '''
+                    }
+
+                    if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'database') {
+                        sh '''
+                          kubectl apply -f k8s/database -n ${K8S_NAMESPACE}
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Verify Rollout') {
+            steps {
+                script {
+                    if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'backend') {
+                        sh 'kubectl rollout status deployment/backend -n ${K8S_NAMESPACE}'
+                    }
+
+                    if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'frontend') {
+                        sh 'kubectl rollout status deployment/frontend -n ${K8S_NAMESPACE}'
+                    }
+
+                    if (params.DEPLOY_TARGET == 'database') {
+                        sh 'kubectl get pods -n ${K8S_NAMESPACE} -l app=mongodb'
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Deployment successful for: ${params.DEPLOY_TARGET}"
+        }
+        failure {
+            echo "❌ Deployment failed for: ${params.DEPLOY_TARGET}"
+        }
+    }
+}
