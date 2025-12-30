@@ -1,15 +1,18 @@
-
 pipeline {
     agent any
 
     environment {
-        SONARQUBE = 'SonarQube'                    // SonarQube config name in Jenkins
-        AWS_REGION = 'ap-south-1'                  // AWS region
-        ECR_URI = '970547336262.dkr.ecr.ap-south-1.amazonaws.com/neoecr/docker-images'
-        IMAGE_NAME = "${ECR_URI}/neoproject"
-        BACKEND_TAG = "backend"
-        FRONTEND_TAG = "frontend"
-        AWS_CREDENTIALS = 'aws-creds'              // Jenkins AWS credentials ID
+        SONARQUBE = 'SonarQube'
+        AWS_REGION = 'ap-south-1'
+        AWS_ACCOUNT_ID = '970547336262'
+
+        BACKEND_ECR_REPO = 'neoproject/backend-img'
+        FRONTEND_ECR_REPO = 'neoproject/frontend-img'
+
+        BACKEND_TAG = 'backend'
+        FRONTEND_TAG = 'frontend'
+
+        AWS_CREDENTIALS = 'aws-creds'   // Jenkins AWS credentials ID
     }
 
     stages {
@@ -25,11 +28,11 @@ pipeline {
             steps {
                 withSonarQubeEnv("${SONARQUBE}") {
                     sh '''
-                        npx sonar-scanner \
-                          -Dsonar.projectKey=nodejs-app \
-                          -Dsonar.sources=. \
-                          -Dsonar.host.url=$SONAR_HOST_URL \
-                          -Dsonar.login=$SONAR_AUTH_TOKEN
+                      npx sonar-scanner \
+                      -Dsonar.projectKey=nodejs-app \
+                      -Dsonar.sources=. \
+                      -Dsonar.host.url=$SONAR_HOST_URL \
+                      -Dsonar.login=$SONAR_AUTH_TOKEN
                     '''
                 }
             }
@@ -54,7 +57,7 @@ pipeline {
                 stage('Build Backend Image') {
                     steps {
                         dir('Application-Code/backend') {
-                            sh "docker build -t ${IMAGE_NAME}:${BACKEND_TAG} ."
+                            sh 'docker build -t backend:latest .'
                         }
                     }
                 }
@@ -62,7 +65,7 @@ pipeline {
                 stage('Build Frontend Image') {
                     steps {
                         dir('Application-Code/frontend') {
-                            sh "docker build -t ${IMAGE_NAME}:${FRONTEND_TAG} ."
+                            sh 'docker build -t frontend:latest .'
                         }
                     }
                 }
@@ -73,23 +76,21 @@ pipeline {
             parallel {
                 stage('Scan Backend Image') {
                     steps {
-                        sh """
-                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-                        -v \$PWD/trivy-reports:/reports aquasec/trivy image \
-                        --severity HIGH,CRITICAL --format json --output /reports/backend-trivy.json \
-                        ${IMAGE_NAME}:${BACKEND_TAG} || true
-                        """
+                        sh '''
+                        docker run --rm \
+                        -v /var/run/docker.sock:/var/run/docker.sock \
+                        aquasec/trivy image backend:latest || true
+                        '''
                     }
                 }
 
                 stage('Scan Frontend Image') {
                     steps {
-                        sh """
-                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
-                        -v \$PWD/trivy-reports:/reports aquasec/trivy image \
-                        --severity HIGH,CRITICAL --format json --output /reports/frontend-trivy.json \
-                        ${IMAGE_NAME}:${FRONTEND_TAG} || true
-                        """
+                        sh '''
+                        docker run --rm \
+                        -v /var/run/docker.sock:/var/run/docker.sock \
+                        aquasec/trivy image frontend:latest || true
+                        '''
                     }
                 }
             }
@@ -99,9 +100,21 @@ pipeline {
             steps {
                 withAWS(credentials: "${AWS_CREDENTIALS}", region: "${AWS_REGION}") {
                     sh '''
-                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_URI}
-                        docker push ${IMAGE_NAME}:${BACKEND_TAG}
-                        docker push ${IMAGE_NAME}:${FRONTEND_TAG}
+                      aws ecr get-login-password --region $AWS_REGION | \
+                      docker login --username AWS --password-stdin \
+                      $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+                      docker tag backend:latest \
+                      $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$BACKEND_ECR_REPO:$BACKEND_TAG
+
+                      docker tag frontend:latest \
+                      $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$FRONTEND_ECR_REPO:$FRONTEND_TAG
+
+                      docker push \
+                      $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$BACKEND_ECR_REPO:$BACKEND_TAG
+
+                      docker push \
+                      $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$FRONTEND_ECR_REPO:$FRONTEND_TAG
                     '''
                 }
             }
@@ -110,15 +123,15 @@ pipeline {
 
     post {
         always {
-            archiveArtifacts artifacts: '**/dependency-check-report.xml, trivy-reports/*.json',
+            archiveArtifacts artifacts: '**/dependency-check-report.xml',
                              fingerprint: true
             echo 'Pipeline finished. Reports archived.'
         }
         success {
-            echo 'CI pipeline completed successfully 🎉'
+            echo '✅ CI pipeline completed successfully'
         }
         failure {
-            echo 'CI pipeline failed 😞'
+            echo '❌ CI pipeline failed'
         }
     }
 }
