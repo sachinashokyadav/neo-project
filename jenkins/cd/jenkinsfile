@@ -28,75 +28,59 @@ pipeline {
             }
         }
 
-        stage('Configure kubeconfig') {
+        stage('Deploy to EKS') {
             steps {
                 withAWS(credentials: 'aws-creds', region: 'ap-south-1') {
-                    sh '''
-                      aws eks update-kubeconfig \
-                        --region ap-south-1 \
-                        --name eks-neosoft
-                    '''
-                }
-            }
-        }
+                    script {
 
-        stage('Deploy Selected Component') {
-            steps {
-                script {
-
-                    if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'backend') {
                         sh '''
-                          kubectl apply -f k8s/backend -n three-tier
-                          kubectl set image deployment/backend \
-                            backend=970547336262.dkr.ecr.ap-south-1.amazonaws.com/neoproject/backend-img:backend \
-                            -n three-tier
+                          aws eks update-kubeconfig \
+                            --region ap-south-1 \
+                            --name eks-neosoft
                         '''
-                    }
 
-                    if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'frontend') {
-                        sh '''
-                          kubectl apply -f k8s/frontend -n three-tier
-                          kubectl set image deployment/frontend \
-                            frontend=970547336262.dkr.ecr.ap-south-1.amazonaws.com/neoproject/frontend-img:frontend \
-                            -n three-tier
-                        '''
-                    }
+                        try {
 
-                    if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'database') {
-                        sh '''
-                          kubectl apply -f k8s/database -n three-tier
-                        '''
-                    }
-                }
-            }
-        }
+                            if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'backend') {
+                                sh '''
+                                  kubectl apply -f k8s/backend -n three-tier
+                                  kubectl set image deployment/backend \
+                                    backend=970547336262.dkr.ecr.ap-south-1.amazonaws.com/neoproject/backend-img:backend \
+                                    -n three-tier
+                                  kubectl rollout status deployment/backend -n three-tier --timeout=120s
+                                '''
+                            }
 
-        stage('Verify Rollout & Rollback on Failure') {
-            steps {
-                script {
-                    try {
+                            if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'frontend') {
+                                sh '''
+                                  kubectl apply -f k8s/frontend -n three-tier
+                                  kubectl set image deployment/frontend \
+                                    frontend=970547336262.dkr.ecr.ap-south-1.amazonaws.com/neoproject/frontend-img:frontend \
+                                    -n three-tier
+                                  kubectl rollout status deployment/frontend -n three-tier --timeout=120s
+                                '''
+                            }
 
-                        if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'backend') {
-                            sh 'kubectl rollout status deployment/backend -n three-tier --timeout=120s'
+                            if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'database') {
+                                sh '''
+                                  kubectl apply -f k8s/database -n three-tier
+                                '''
+                            }
+
+                        } catch (err) {
+
+                            echo '⚠️ Deployment failed — rolling back'
+
+                            if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'backend') {
+                                sh 'kubectl rollout undo deployment/backend -n three-tier'
+                            }
+
+                            if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'frontend') {
+                                sh 'kubectl rollout undo deployment/frontend -n three-tier'
+                            }
+
+                            error('Deployment failed and rollback executed')
                         }
-
-                        if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'frontend') {
-                            sh 'kubectl rollout status deployment/frontend -n three-tier --timeout=120s'
-                        }
-
-                    } catch (err) {
-
-                        echo '⚠️ Rollout failed — starting rollback'
-
-                        if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'backend') {
-                            sh 'kubectl rollout undo deployment/backend -n three-tier'
-                        }
-
-                        if (params.DEPLOY_TARGET == 'all' || params.DEPLOY_TARGET == 'frontend') {
-                            sh 'kubectl rollout undo deployment/frontend -n three-tier'
-                        }
-
-                        error('Deployment failed and was rolled back')
                     }
                 }
             }
