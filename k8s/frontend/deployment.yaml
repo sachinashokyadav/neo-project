@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: frontend
-        image: sachinashokyadav/neoproject:frontend
+        image: 970547336262.dkr.ecr.ap-south-1.amazonaws.com/neoproject/frontend-img:frontend
         ports:
         - containerPort: 3000
         env:
