@@ -1,17 +1,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: backend-deployment
+  name: backend
   namespace: three-tier
-  labels:
-    app: backend
 spec:
   replicas: 2
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 1
   selector:
     matchLabels:
       app: backend
@@ -21,16 +14,43 @@ spec:
         app: backend
     spec:
       containers:
-        - name: backend
-          image: sachinashokyadav/neoproject:backend
-          imagePullPolicy: Always
-          ports:
-            - containerPort: 3500
-          resources:
-            requests:
-              cpu: "100m"
-              memory: "128Mi"
-            limits:
-              cpu: "500m"
-              memory: "256Mi"
-
+      - name: backend
+        image: sachinashokyadav/neoproject:backend
+        ports:
+        - containerPort: 3500
+        env:
+          - name: MONGO_CONN_STR
+            value: "mongodb://$(MONGO_USERNAME):$(MONGO_PASSWORD)@mongodb-0.mongodb.three-tier.svc.cluster.local:27017/?authSource=admin"
+          - name: USE_DB_AUTH
+            value: "true"
+          - name: MONGO_USERNAME
+            valueFrom:
+              secretKeyRef:
+                name: mongo-secret
+                key: MONGO_INITDB_ROOT_USERNAME
+          - name: MONGO_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: mongo-secret
+                key: MONGO_INITDB_ROOT_PASSWORD
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /ok
+            port: 3500
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          failureThreshold: 6
+        readinessProbe:
+          httpGet:
+            path: /ok
+            port: 3500
+          initialDelaySeconds: 15
+          periodSeconds: 10
+          failureThreshold: 6
