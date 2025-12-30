@@ -1,1 +1,124 @@
 
+pipeline {
+    agent any
+
+    environment {
+        SONARQUBE = 'SonarQube'                    // SonarQube config name in Jenkins
+        AWS_REGION = 'ap-south-1'                  // AWS region
+        ECR_URI = '970547336262.dkr.ecr.ap-south-1.amazonaws.com/neoecr/docker-images'
+        IMAGE_NAME = "${ECR_URI}/neoproject"
+        BACKEND_TAG = "backend"
+        FRONTEND_TAG = "frontend"
+        AWS_CREDENTIALS = 'aws-creds'              // Jenkins AWS credentials ID
+    }
+
+    stages {
+
+        stage('Checkout Code') {
+            steps {
+                git branch: 'main',
+                    url: 'https://github.com/sachinashokyadav/neo-project.git'
+            }
+        }
+
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv("${SONARQUBE}") {
+                    sh '''
+                        npx sonar-scanner \
+                          -Dsonar.projectKey=nodejs-app \
+                          -Dsonar.sources=. \
+                          -Dsonar.host.url=$SONAR_HOST_URL \
+                          -Dsonar.login=$SONAR_AUTH_TOKEN
+                    '''
+                }
+            }
+        }
+
+        stage('OWASP Dependency Check') {
+            steps {
+                dependencyCheck(
+                    odcInstallation: 'OWASP-Dependency-Check',
+                    additionalArguments: '''
+                        --scan .
+                        --format XML
+                        --out dependency-check-report.xml
+                    '''
+                )
+                dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+            }
+        }
+
+        stage('Docker Build Images') {
+            parallel {
+                stage('Build Backend Image') {
+                    steps {
+                        dir('Application-Code/backend') {
+                            sh "docker build -t ${IMAGE_NAME}:${BACKEND_TAG} ."
+                        }
+                    }
+                }
+
+                stage('Build Frontend Image') {
+                    steps {
+                        dir('Application-Code/frontend') {
+                            sh "docker build -t ${IMAGE_NAME}:${FRONTEND_TAG} ."
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Trivy Scan Images') {
+            parallel {
+                stage('Scan Backend Image') {
+                    steps {
+                        sh """
+                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+                        -v \$PWD/trivy-reports:/reports aquasec/trivy image \
+                        --severity HIGH,CRITICAL --format json --output /reports/backend-trivy.json \
+                        ${IMAGE_NAME}:${BACKEND_TAG} || true
+                        """
+                    }
+                }
+
+                stage('Scan Frontend Image') {
+                    steps {
+                        sh """
+                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+                        -v \$PWD/trivy-reports:/reports aquasec/trivy image \
+                        --severity HIGH,CRITICAL --format json --output /reports/frontend-trivy.json \
+                        ${IMAGE_NAME}:${FRONTEND_TAG} || true
+                        """
+                    }
+                }
+            }
+        }
+
+        stage('Push Images to AWS ECR') {
+            steps {
+                withAWS(credentials: "${AWS_CREDENTIALS}", region: "${AWS_REGION}") {
+                    sh '''
+                        aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${ECR_URI}
+                        docker push ${IMAGE_NAME}:${BACKEND_TAG}
+                        docker push ${IMAGE_NAME}:${FRONTEND_TAG}
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: '**/dependency-check-report.xml, trivy-reports/*.json',
+                             fingerprint: true
+            echo 'Pipeline finished. Reports archived.'
+        }
+        success {
+            echo 'CI pipeline completed successfully 🎉'
+        }
+        failure {
+            echo 'CI pipeline failed 😞'
+        }
+    }
+}
